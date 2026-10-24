@@ -1,0 +1,9 @@
+# Local asset-generation cache and diagnostics; not required to run the pet.
+.build/
+*.log
+test-*.bmp
+*.o
+*.obj
+*.pdb
+settings.ini
+*.stackdump
