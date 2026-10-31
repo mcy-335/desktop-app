@@ -1,0 +1,48 @@
+{
+  "ReleasedAt": "2026-10-31T15:57:47.7263732+08:00",
+  "Model": "pet-arm-rig-joints-v2",
+  "BridgeABI": 2,
+  "KeyboardScale": 0.85,
+  "KeyboardOffsetAtlasPixels": [
+    -27,
+    -7.2
+  ],
+  "LogicalKeys": 86,
+  "VisibleKeycaps": 60,
+  "UserApproved": true,
+  "IntegrationTestExitCode": 0,
+  "Files": [
+    {
+      "File": "LetterPet.exe",
+      "SHA256": "73A061745E6FF700A2353C830A2D6A8F8E211969EC293EFFDF9F45150760C3A3"
+    },
+    {
+      "File": "live2d-runtime\\PetLive2D.dll",
+      "SHA256": "CCA9982B33D7EDF0A6EC0F2A0183B01C01BC4C1B5530F99159B14195687D471C"
+    },
+    {
+      "File": "assets\\live2d\\runtime\\pet\\pet-arm-rig-joints-v2.cdi3.json",
+      "SHA256": "4856E5762D304AE009E3483CC0199E13720522131539B6B2D57EECF1F3A4EB00"
+    },
+    {
+      "File": "assets\\live2d\\runtime\\pet\\pet-arm-rig-joints-v2.moc3",
+      "SHA256": "7BDA228472C884F4003DB2059ECBC0167E6565BC94EE0602A6B34872354B5187"
+    },
+    {
+      "File": "assets\\live2d\\runtime\\pet\\pet-arm-rig-joints-v2.model3.json",
+      "SHA256": "A56D0D9C09077B24188A96F2415B46CF957A2A6B40550B615DEE8E105725D451"
+    },
+    {
+      "File": "assets\\live2d\\runtime\\pet\\pet.model3.json",
+      "SHA256": "25CBACA1D923843864DDC604BD4B9CF4D31A0441D54A23F8A1D16B4CF571815B"
+    },
+    {
+      "File": "assets\\live2d\\runtime\\pet\\motions\\blink.motion3.json",
+      "SHA256": "258C7A75E4FE712FE5A1F8EBC4321FCB472AB0DDB8F7EAC796D320B6A6FD46C1"
+    },
+    {
+      "File": "assets\\live2d\\runtime\\pet\\pet-arm-rig-joints-v2.2048\\texture_00.png",
+      "SHA256": "849317090D580DB1DE43867A157A136906B17F42E6A6A01F52F1C9EBC522250D"
+    }
+  ]
+}

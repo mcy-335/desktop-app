@@ -1,0 +1,98 @@
+#include "pet.h"
+#include <shellapi.h>
+#include <commctrl.h>
+HWND pet_window;HINSTANCE pet_instance;Settings settings={480,0,0,true,false,false,false,true};Model model;wchar_t app_dir[MAX_PATH];bool test_mode=false;
+static wchar_t config_path[MAX_PATH];static HANDLE instance_mutex;static NOTIFYICONDATAW tray;static UINT taskbar_created;static bool input_ok,dragging,moved,dirty=true;static POINT drag_cursor,drag_origin;static double blink_at,blink_until,expression_at,expression_until,pulses[3];static int expression;static double last_frame_ms,last_game_check;static unsigned long rendered_frames;
+static bool preview_mode=false;static bool visible=true;static HMENU active_menu;static HFONT menu_font;
+#ifdef PET_ARM_CANDIDATE
+#define PET_MUTEX L"Local\\LetterPetC.ArmCandidate.v2"
+#define PET_CLASS L"LetterPetC.ArmCandidate.Window"
+#define PET_TITLE L"桌宠 · Live2D 手臂测试版"
+#else
+#define PET_MUTEX L"Local\\LetterPetC.Native.v1"
+#define PET_CLASS L"LetterPetC.Window"
+#define PET_TITLE L"桌宠"
+#endif
+static void input_key_event(UINT vk,bool down,double t){model_key(&model,vk,down,t);live2d_key(vk,down);}
+static void input_mouse_event(int b,bool down,double t){model_mouse(&model,b,down,t);live2d_mouse(b,down);}
+#define WM_TRAY (WM_APP+1)
+#define WM_WAKE (WM_APP+2)
+static void save_settings(void){if(test_mode)return;wchar_t buf[40];const wchar_t *names[]={L"size",L"x",L"y",L"topmost",L"clickthrough",L"game",L"live2d"};int values[]={settings.size,settings.x,settings.y,settings.topmost,settings.clickthrough,settings.game,settings.live2d};for(int i=0;i<7;i++){swprintf(buf,40,L"%d",values[i]);WritePrivateProfileStringW(L"pet",names[i],buf,config_path);}}
+static void default_position(void){RECT area;SystemParametersInfoW(SPI_GETWORKAREA,0,&area,0);settings.x=area.left+24;settings.y=area.bottom-settings.size-24;}
+static bool startup_enabled(void){HKEY key;bool yes=false;if(RegOpenKeyExW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",0,KEY_READ,&key)==ERROR_SUCCESS){wchar_t value[MAX_PATH+4];DWORD n=sizeof(value),type;if(RegQueryValueExW(key,L"LetterPetC",NULL,&type,(BYTE*)value,&n)==ERROR_SUCCESS){wchar_t expected[MAX_PATH+4],exe[MAX_PATH];GetModuleFileNameW(NULL,exe,MAX_PATH);swprintf(expected,MAX_PATH+4,L"\"%ls\"",exe);yes=type==REG_SZ&&!wcscmp(value,expected);}RegCloseKey(key);}return yes;}
+static void load_settings(void){wchar_t dir[MAX_PATH];
+#ifdef PET_ARM_CANDIDATE
+ lstrcpyW(dir,app_dir);
+#else
+if(!GetEnvironmentVariableW(L"LOCALAPPDATA",dir,MAX_PATH))lstrcpyW(dir,app_dir);wcscat(dir,L"\\LetterPetC");
+#endif
+CreateDirectoryW(dir,NULL);swprintf(config_path,MAX_PATH,L"%ls\\settings.ini",dir);settings.size=GetPrivateProfileIntW(L"pet",L"size",480,config_path);if(settings.size!=240&&settings.size!=360&&settings.size!=480&&settings.size!=600&&settings.size!=720)settings.size=480;default_position();settings.x=(int)GetPrivateProfileIntW(L"pet",L"x",settings.x,config_path);settings.y=(int)GetPrivateProfileIntW(L"pet",L"y",settings.y,config_path);RECT r={settings.x,settings.y,settings.x+settings.size,settings.y+settings.size};if(!MonitorFromRect(&r,MONITOR_DEFAULTTONULL))default_position();settings.topmost=GetPrivateProfileIntW(L"pet",L"topmost",1,config_path)!=0;settings.clickthrough=GetPrivateProfileIntW(L"pet",L"clickthrough",0,config_path)!=0;settings.game=GetPrivateProfileIntW(L"pet",L"game",0,config_path)!=0;settings.autostart=startup_enabled();settings.live2d=GetPrivateProfileIntW(L"pet",L"live2d",1,config_path)!=0;}
+static void behavior(void){LONG_PTR ex=GetWindowLongPtrW(pet_window,GWL_EXSTYLE);if(settings.clickthrough||settings.game)ex|=WS_EX_TRANSPARENT;else ex&=~WS_EX_TRANSPARENT;SetWindowLongPtrW(pet_window,GWL_EXSTYLE,ex);SetWindowPos(pet_window,settings.game||settings.topmost?HWND_TOPMOST:HWND_NOTOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
+static void set_scale(int percent){int n=480*percent/100;if(n==settings.size)return;int x=settings.x+settings.size-n,y=settings.y+settings.size-n;if(!renderer_resize(n)){MessageBoxW(pet_window,L"无法分配缩放画面内存。",L"桌宠",MB_ICONERROR);PostQuitMessage(1);return;}settings.size=n;settings.x=x;settings.y=y;RECT r={x,y,x+n,y+n};MONITORINFO mi={sizeof(mi)};GetMonitorInfoW(MonitorFromRect(&r,MONITOR_DEFAULTTONEAREST),&mi);settings.x=(int)clampd(x,mi.rcWork.left,fmax(mi.rcWork.left,mi.rcWork.right-n));settings.y=(int)clampd(y,mi.rcWork.top,fmax(mi.rcWork.top,mi.rcWork.bottom-n));SetWindowPos(pet_window,NULL,settings.x,settings.y,n,n,SWP_NOZORDER|SWP_NOACTIVATE);dirty=true;save_settings();}
+static void set_startup(void){
+#ifdef PET_ARM_CANDIDATE
+ MessageBoxW(pet_window,L"独立测试版不修改开机启动设置。",L"手臂接入测试版",MB_OK);return;
+#endif
+ HKEY k;LONG result=RegCreateKeyExW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",0,NULL,0,KEY_SET_VALUE,NULL,&k,NULL);if(result==ERROR_SUCCESS){if(settings.autostart)result=RegDeleteValueW(k,L"LetterPetC");else{wchar_t exe[MAX_PATH],value[MAX_PATH+4];GetModuleFileNameW(NULL,exe,MAX_PATH);swprintf(value,MAX_PATH+4,L"\"%ls\"",exe);result=RegSetValueExW(k,L"LetterPetC",0,REG_SZ,(BYTE*)value,(DWORD)((wcslen(value)+1)*sizeof(wchar_t)));}RegCloseKey(k);}if(result==ERROR_SUCCESS||result==ERROR_FILE_NOT_FOUND)settings.autostart=startup_enabled();else MessageBoxW(pet_window,L"无法更改开机启动设置。",L"桌宠",MB_ICONWARNING);}
+void pet_command(UINT id){switch(id){case CMD_SHOW:visible=!visible;live2d_reset_clock();ShowWindow(pet_window,visible?SW_SHOWNOACTIVATE:SW_HIDE);break;case CMD_TOP:settings.topmost=!settings.topmost;behavior();break;case CMD_PASS:settings.clickthrough=!settings.clickthrough;if(settings.game)settings.game=false;behavior();break;case CMD_GAME:settings.game=!settings.game;behavior();break;case CMD_STARTUP:set_startup();break;case CMD_RESET:default_position();SetWindowPos(pet_window,NULL,settings.x,settings.y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);break;case CMD_MONITOR:monitor_show();break;case CMD_LIVE2D:{bool was_live2d=live2d_active();if(!live2d_available()){live2d_init(settings.size);if(!live2d_available()){MessageBoxW(pet_window,live2d_error(),L"Live2D 未就绪，保留原版互动模式",MB_ICONWARNING);break;}}settings.live2d=!was_live2d;live2d_reset_clock();break;}case CMD_QUIT:DestroyWindow(pet_window);return;default:if(id>=CMD_SCALE+50&&id<=CMD_SCALE+150)set_scale(id-CMD_SCALE);break;}save_settings();dirty=true;}
+typedef struct {UINT id;const wchar_t *text;bool checked;} MenuItem;
+static MenuItem items[15];
+void pet_menu(POINT point){
+ MenuItem menu[]={ {CMD_SHOW,visible?L"隐藏桌宠":L"显示桌宠",false},{CMD_MONITOR,L"查看进程 / CPU 占用",false},{CMD_LIVE2D,live2d_active()?L"切换为原版键鼠互动":L"切换为 Live2D 手臂互动",live2d_active()},{CMD_TOP,L"窗口置顶",settings.topmost},{CMD_PASS,L"鼠标穿透  Ctrl+Alt+Shift+P",settings.clickthrough},{CMD_GAME,L"游戏模式  Ctrl+Alt+Shift+G",settings.game},{CMD_STARTUP,L"开机启动",settings.autostart},{CMD_SCALE+50,L"大小 50%",settings.size==240},{CMD_SCALE+75,L"大小 75%",settings.size==360},{CMD_SCALE+100,L"大小 100%",settings.size==480},{CMD_SCALE+125,L"大小 125%",settings.size==600},{CMD_SCALE+150,L"大小 150%",settings.size==720},{CMD_RESET,L"重置位置",false},{CMD_QUIT,L"退出桌宠",false}};
+ memcpy(items,menu,sizeof(menu));active_menu=CreatePopupMenu();for(size_t i=0;i<sizeof(menu)/sizeof(menu[0]);i++)AppendMenuW(active_menu,MF_OWNERDRAW,items[i].id,(LPCWSTR)&items[i]);SetForegroundWindow(pet_window);UINT cmd=TrackPopupMenu(active_menu,TPM_RETURNCMD|TPM_RIGHTBUTTON|TPM_LEFTALIGN,point.x,point.y,0,pet_window,NULL);DestroyMenu(active_menu);active_menu=NULL;PostMessageW(pet_window,WM_NULL,0,0);if(cmd)pet_command(cmd);
+}
+static void add_tray(void){memset(&tray,0,sizeof(tray));tray.cbSize=sizeof(tray);tray.hWnd=pet_window;tray.uID=1;tray.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP;tray.uCallbackMessage=WM_TRAY;tray.hIcon=LoadIconW(NULL,IDI_INFORMATION);lstrcpyW(tray.szTip,L"桌宠（右键打开菜单）");Shell_NotifyIconW(NIM_ADD,&tray);}
+static void raw_input(HRAWINPUT handle){UINT n=0;if(GetRawInputData(handle,RID_INPUT,NULL,&n,sizeof(RAWINPUTHEADER))!=0||n<sizeof(RAWINPUTHEADER)||n>65536)return;RAWINPUT *r=malloc(n);if(!r)return;if(GetRawInputData(handle,RID_INPUT,r,&n,sizeof(RAWINPUTHEADER))==n){double t=now_ms();if(r->header.dwType==RIM_TYPEKEYBOARD){RAWKEYBOARD k=r->data.keyboard;UINT vk=k.VKey;bool down=!(k.Flags&RI_KEY_BREAK),ext=(k.Flags&RI_KEY_E0)!=0;if(vk==VK_SHIFT)vk=k.MakeCode==0x36?VK_RSHIFT:VK_LSHIFT;if(vk==VK_CONTROL)vk=ext?VK_RCONTROL:VK_LCONTROL;if(vk==VK_MENU)vk=ext?VK_RMENU:VK_LMENU;
+  bool numpad=(vk==VK_RETURN&&ext)||(!ext&&(vk==VK_INSERT||vk==VK_DELETE||vk==VK_HOME||vk==VK_END||vk==VK_PRIOR||vk==VK_NEXT||(vk>=VK_LEFT&&vk<=VK_DOWN)));if(!numpad&&vk!=255){if(vk==VK_SNAPSHOT&&!down)input_key_event(vk,true,t);input_key_event(vk,down,t);}
+ }else if(r->header.dwType==RIM_TYPEMOUSE){USHORT f=r->data.mouse.usButtonFlags;USHORT downs[]={RI_MOUSE_LEFT_BUTTON_DOWN,RI_MOUSE_RIGHT_BUTTON_DOWN,RI_MOUSE_MIDDLE_BUTTON_DOWN},ups[]={RI_MOUSE_LEFT_BUTTON_UP,RI_MOUSE_RIGHT_BUTTON_UP,RI_MOUSE_MIDDLE_BUTTON_UP};for(int i=0;i<3;i++){if(f&downs[i])input_mouse_event(i,true,t);if(f&ups[i])input_mouse_event(i,false,t);}}}free(r);}
+static void tick(void){double t=now_ms();if(!input_ok){for(int i=0;i<model.count;i++){bool held=(GetAsyncKeyState(model.keys[i].vk)&0x8000)!=0;if(held!=model.keys[i].held)input_key_event(model.keys[i].vk,held,t);}UINT vks[]={VK_LBUTTON,VK_RBUTTON,VK_MBUTTON};for(int i=0;i<3;i++){bool held=(GetAsyncKeyState(vks[i])&0x8000)!=0;if(held!=model.mouse[i].held)input_mouse_event(i,held,t);}}
+ dirty|=model_tick(&model,t);dirty|=live2d_active();if(!visible){live2d_reset_clock();live2d_clear_input();}if(t>=blink_at){blink_until=t+135;blink_at=t+3000+rand()%3500;dirty=true;}if(blink_until&&t>=blink_until){blink_until=0;dirty=true;}if(t>=expression_at){expression=2+rand()%6;expression_until=t+1800;expression_at=t+9000+rand()%14000;dirty=true;}if(expression_until&&t>=expression_until){expression_until=0;expression=0;dirty=true;}
+ for(int i=0;i<3;i++)if(pulses[i]&&t-pulses[i]<900)dirty=true;
+ if(settings.game&&t-last_game_check>2000){behavior();last_game_check=t;}
+ if(dirty&&visible){double start=now_ms();renderer_draw(blink_until?1:expression,t,pulses);renderer_present(pet_window);last_frame_ms=now_ms()-start;rendered_frames++;dirty=false;}}
+static LRESULT CALLBACK window_proc(HWND w,UINT msg,WPARAM wp,LPARAM lp){
+ if(msg==taskbar_created&&taskbar_created){add_tray();return 0;}
+ switch(msg){
+ case WM_POWERBROADCAST:if(wp==PBT_APMSUSPEND)live2d_clear_input();return TRUE;
+ case WM_INPUT:raw_input((HRAWINPUT)lp);return DefWindowProcW(w,msg,wp,lp);
+ case WM_TIMER:tick();return 0;
+ case WM_HOTKEY:pet_command(wp==1?CMD_PASS:CMD_GAME);return 0;
+ case WM_APP+3:MessageBoxW(w,live2d_error(),L"Live2D 渲染异常，已恢复原版互动",MB_ICONWARNING);return 0;
+ case WM_WAKE:if(wp){monitor_show();return 0;}visible=true;live2d_reset_clock();ShowWindow(w,SW_SHOWNOACTIVATE);dirty=true;return 0;
+ case WM_TRAY:if(lp==WM_RBUTTONUP){POINT p;GetCursorPos(&p);pet_menu(p);}else if(lp==WM_LBUTTONUP)pet_command(CMD_SHOW);return 0;
+ case WM_MOUSEACTIVATE:return MA_NOACTIVATE;
+ case WM_NCHITTEST:{POINT p={GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(w,&p);return settings.clickthrough||settings.game||!renderer_hit(p.x,p.y)?HTTRANSPARENT:HTCLIENT;}
+ case WM_LBUTTONDOWN:GetCursorPos(&drag_cursor);drag_origin=(POINT){settings.x,settings.y};dragging=true;moved=false;SetCapture(w);return 0;
+ case WM_MOUSEMOVE:if(dragging){POINT p;GetCursorPos(&p);int dx=p.x-drag_cursor.x,dy=p.y-drag_cursor.y;if(abs(dx)+abs(dy)>4)moved=true;if(moved){settings.x=drag_origin.x+dx;settings.y=drag_origin.y+dy;SetWindowPos(w,NULL,settings.x,settings.y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);}}return 0;
+ case WM_LBUTTONUP:if(dragging){dragging=false;ReleaseCapture();save_settings();if(!moved){if(live2d_active()){live2d_click(now_ms());dirty=true;return 0;}int i=collectible_hit(GET_X_LPARAM(lp),GET_Y_LPARAM(lp));if(i>=0)pulses[i]=now_ms();else{expression=2;expression_until=now_ms()+1600;}dirty=true;}}return 0;
+ case WM_CAPTURECHANGED:dragging=false;return 0;
+ case WM_RBUTTONUP:{POINT p;GetCursorPos(&p);pet_menu(p);return 0;}
+ case WM_MEASUREITEM:{MEASUREITEMSTRUCT *mi=(void*)lp;if(mi->CtlType==ODT_MENU){mi->itemWidth=260;mi->itemHeight=30;return TRUE;}break;}
+ case WM_DRAWITEM:{DRAWITEMSTRUCT *di=(void*)lp;if(di->CtlType==ODT_MENU){MenuItem *it=(void*)di->itemData;HBRUSH bg=CreateSolidBrush(di->itemState&ODS_SELECTED?RGB(124,40,45):RGB(67,22,30));FillRect(di->hDC,&di->rcItem,bg);DeleteObject(bg);HBRUSH border=CreateSolidBrush(RGB(175,132,69));FrameRect(di->hDC,&di->rcItem,border);DeleteObject(border);SetBkMode(di->hDC,TRANSPARENT);SetTextColor(di->hDC,RGB(242,215,161));HFONT old=SelectObject(di->hDC,menu_font);RECT r=di->rcItem;r.left+=12;if(it->checked)TextOutW(di->hDC,r.left,r.top+6,L"✓",1);r.left+=25;DrawTextW(di->hDC,it->text,-1,&r,DT_SINGLELINE|DT_VCENTER);SelectObject(di->hDC,old);return TRUE;}break;}
+ case WM_DISPLAYCHANGE:{RECT r={settings.x,settings.y,settings.x+settings.size,settings.y+settings.size};if(!MonitorFromRect(&r,MONITOR_DEFAULTTONULL))pet_command(CMD_RESET);return 0;}
+ case WM_DPICHANGED:dirty=true;return 0;
+ case WM_CLOSE:visible=false;ShowWindow(w,SW_HIDE);return 0;
+ case WM_DESTROY:KillTimer(w,1);save_settings();Shell_NotifyIconW(NIM_DELETE,&tray);UnregisterHotKey(w,1);UnregisterHotKey(w,2);PostQuitMessage(0);return 0;
+ }return DefWindowProcW(w,msg,wp,lp);
+}
+static int run_integration_test(void){
+ wchar_t path[MAX_PATH];swprintf(path,MAX_PATH,L"%ls\\integration-test.log",app_dir);FILE *log=_wfopen(path,L"w");if(!log)return 2;
+ bool ok=model_selftest(log)&&live2d_input_selftest(log);int original=settings.size;
+ for(int size=50;size<=150;size+=25){set_scale(size);RECT r;GetWindowRect(pet_window,&r);ok=ok&&r.right-r.left==settings.size&&r.bottom-r.top==settings.size;}
+ int x=settings.x,y=settings.y;settings.x+=19;settings.y+=13;SetWindowPos(pet_window,NULL,settings.x,settings.y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);RECT r;GetWindowRect(pet_window,&r);ok=ok&&r.left==x+19&&r.top==y+13;settings.x=x;settings.y=y;SetWindowPos(pet_window,NULL,x,y,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);
+ fprintf(log,"%s: host window resizing and position translation; no mouse injection or screenshots.\n",ok?"PASS":"FAIL");fprintf(log,"OVERALL: %s\n",ok?"PASS":"FAIL");fclose(log);(void)original;return ok?0:1;
+}
+static int run_selftest(void){wchar_t path[MAX_PATH];swprintf(path,MAX_PATH,L"%ls\\self-test.log",app_dir);FILE *log=_wfopen(path,L"w");if(!log)return 2;bool want_live2d=settings.live2d;settings.live2d=false;bool ok=model_selftest(log)&&monitor_selftest(log);model_init(&model);double zero[3]={0};renderer_draw(0,1000,zero);swprintf(path,MAX_PATH,L"%ls\\test-idle.bmp",app_dir);ok=renderer_bmp(path)&&ok;
+ double start=now_ms();for(int i=0;i<86;i++){model.tip=key_center(&model.keys[i],1);model.keys[i].amount=1;renderer_draw(0,1000,zero);if(i==0||i==15||model.keys[i].vk==VK_SPACE){swprintf(path,MAX_PATH,L"%ls\\test-key-%d.bmp",app_dir,i);ok=renderer_bmp(path)&&ok;}model.keys[i].amount=0;}fprintf(log,"Render 86 key poses: %.1f ms/frame at %d px\n",(now_ms()-start)/86,settings.size);
+ for(int i=0;i<8;i++)renderer_draw(i,1000,zero);for(int n=240;n<=720;n+=120){ok=renderer_resize(n)&&ok;renderer_draw(0,1000,zero);}fprintf(log,"%s: assets, 86 rendered poses, 8 expressions, 5 sizes.\n",ok?"PASS":"FAIL");if(want_live2d)ok=live2d_selftest(log)&&ok;settings.live2d=want_live2d;fprintf(log,"OVERALL: %s\n",ok?"PASS":"FAIL");fclose(log);return ok?0:1;}
+int WINAPI wWinMain(HINSTANCE instance,HINSTANCE previous,LPWSTR command,int show){(void)previous;(void)show;pet_instance=instance;bool integration=wcsstr(command,L"--integration-test")!=NULL;test_mode=integration||wcsstr(command,L"--self-test")!=NULL;preview_mode=wcsstr(command,L"--preview")!=NULL;GetModuleFileNameW(NULL,app_dir,MAX_PATH);wchar_t *slash=wcsrchr(app_dir,L'\\');if(slash)*slash=0;SetProcessDPIAware();srand((unsigned)GetTickCount());INITCOMMONCONTROLSEX controls={sizeof(controls),ICC_LISTVIEW_CLASSES};InitCommonControlsEx(&controls);
+ if(!test_mode){instance_mutex=CreateMutexW(NULL,FALSE,PET_MUTEX);if(GetLastError()==ERROR_ALREADY_EXISTS){HWND other=FindWindowW(PET_CLASS,NULL);if(other)PostMessageW(other,WM_WAKE,wcsstr(command,L"--monitor")!=NULL,0);CloseHandle(instance_mutex);return 0;}load_settings();}
+ if(wcsstr(command,L"--legacy"))settings.live2d=false;
+ model_init(&model);if(!renderer_init()){MessageBoxW(NULL,L"无法加载桌宠素材。请保留 exe 旁的 assets 文件夹。",L"桌宠",MB_ICONERROR);renderer_free();return 1;}
+ if(test_mode&&!integration){int result=run_selftest();renderer_free();return result;}
+ WNDCLASSW wc={0};wc.lpfnWndProc=window_proc;wc.hInstance=instance;wc.lpszClassName=PET_CLASS;wc.hCursor=LoadCursor(NULL,IDC_ARROW);RegisterClassW(&wc);pet_window=CreateWindowExW(WS_EX_LAYERED|(preview_mode?WS_EX_APPWINDOW:(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE)),wc.lpszClassName,PET_TITLE,WS_POPUP,settings.x,settings.y,settings.size,settings.size,NULL,NULL,instance,NULL);if(!pet_window){renderer_free();return 1;}
+ if(integration){int result=run_integration_test();DestroyWindow(pet_window);renderer_free();return result;}
+ RAWINPUTDEVICE devices[2]={{1,6,RIDEV_INPUTSINK,pet_window},{1,2,RIDEV_INPUTSINK,pet_window}};input_ok=RegisterRawInputDevices(devices,2,sizeof(devices[0]))!=0;
+ menu_font=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei UI");taskbar_created=RegisterWindowMessageW(L"TaskbarCreated");add_tray();RegisterHotKey(pet_window,1,MOD_CONTROL|MOD_ALT|MOD_SHIFT|MOD_NOREPEAT,'P');RegisterHotKey(pet_window,2,MOD_CONTROL|MOD_ALT|MOD_SHIFT|MOD_NOREPEAT,'G');
+ blink_at=now_ms()+3200;expression_at=now_ms()+12000;behavior();tick();ShowWindow(pet_window,SW_SHOWNOACTIVATE);if(settings.live2d&&!live2d_available())PostMessageW(pet_window,WM_APP+3,0,0);SetTimer(pet_window,1,33,NULL);if(wcsstr(command,L"--monitor"))monitor_show();MSG msg;while(GetMessageW(&msg,NULL,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}monitor_close();renderer_free();DeleteObject(menu_font);if(instance_mutex)CloseHandle(instance_mutex);return (int)msg.wParam;
+}

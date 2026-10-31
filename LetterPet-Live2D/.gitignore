@@ -1,0 +1,14 @@
+# Local build output and personal data
+.backup/
+.build/
+live2d-preview/build/
+live2d-preview/bin/
+*.log
+*.o
+*.obj
+*.pdb
+*.stackdump
+test-*.bmp
+settings.ini
+live2d-runtime/reach-map.csv
+live2d-runtime/scene-mapping.txt
