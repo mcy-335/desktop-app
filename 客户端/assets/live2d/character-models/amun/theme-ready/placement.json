@@ -1,0 +1,61 @@
+{
+  "ModelCanvas": [
+    1254,
+    1254
+  ],
+  "ThemeCanvas": [
+    1536,
+    1024
+  ],
+  "ModelToThemeAffine": [
+    [
+      -0.7889326889456214,
+      -0.008506684165401363,
+      1281.1212298289563
+    ],
+    [
+      -0.008506684165401363,
+      0.7889326889456214,
+      -142.25106213807078
+    ]
+  ],
+  "ModelHandAnchors": {
+    "Mouse": [
+      229,
+      994
+    ],
+    "Keyboard": [
+      685,
+      1023
+    ]
+  },
+  "ThemeHandAnchors": {
+    "Mouse": [
+      1092,
+      640
+    ],
+    "Keyboard": [
+      732,
+      659
+    ]
+  },
+  "ThemeDeskRearEdgeY": 570,
+  "DrawablesAboveDesk": [
+    "MouseArm*",
+    "KeyboardArm*"
+  ],
+  "DrawableTransforms": {
+    "Raven": [
+      [
+        0.6,
+        0.0,
+        647.6
+      ],
+      [
+        0.0,
+        0.6,
+        111.60000000000002
+      ]
+    ]
+  }
+}

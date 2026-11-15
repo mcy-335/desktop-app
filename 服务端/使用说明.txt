@@ -1,0 +1,17 @@
+﻿当前包已更新专注规则，请先阅读「本次更新说明.txt」。
+
+LetterPet 服务端
+版本 1.13.1 · 2026-11-14
+
+1. 完整解压到本地文件夹。保留 server 和 assets/rewards 的相对位置。
+2. 在服务端电脑安装 Python 3.10 或更新版本。程序只使用 Python 标准库。
+3. 双击「启动服务端.cmd」或运行 server\start-local.cmd，并保持服务进程运行。
+4. 浏览器打开 http://127.0.0.1:8765 可查看首页。
+   商城在 /shop，管理后台在 /admin。首次设置管理员请使用服务窗口显示的一次性注册码。
+5. 已有服务升级时，先停止旧服务。启动新版时明确传入旧数据库的绝对路径，例如
+   python -B .\server\letterpet_server.py --db "D:\LetterPet\data\letterpet.sqlite3" serve
+   沿用已有的端口和 HTTPS 或 Tailscale 参数。查看 server\README.md 获取完整命令。
+
+首次运行会在 server/data 生成数据库。此包不包含任何账号、数据库、备份或证书私钥。
+
+悬挂配饰版：同步更新客户端。升级时保留原数据库及启动参数，更新 server 和 assets/rewards 后重启服务端；商品编号、价格和购买记录不变。

@@ -1,0 +1,31 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "pet-arm-rig-joints-v2.moc3",
+    "Textures": [
+      "pet-arm-rig-joints-v2.2048/texture_00.png"
+    ],
+    "DisplayInfo": "pet-arm-rig-joints-v2.cdi3.json",
+    "Motions": {
+      "Idle": [
+        {
+          "FadeInTime": 0,
+          "File": "motions/blink.motion3.json",
+          "FadeOutTime": 0
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": []
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": []
+    }
+  ]
+}

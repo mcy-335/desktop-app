@@ -1,0 +1,2 @@
+#include "resource.h"
+IDI_LETTERPET ICON "assets/branding/LetterPet.ico"

@@ -1,0 +1,31 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "sandone-theme-ready.moc3",
+    "Textures": [
+      "sandone-theme-ready.2048/texture_00.png"
+    ],
+    "DisplayInfo": "sandone-theme-ready.cdi3.json",
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/blink.motion3.json",
+          "FadeInTime": 0,
+          "FadeOutTime": 0
+        }
+      ]
+    }
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": []
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": []
+    }
+  ]
+}

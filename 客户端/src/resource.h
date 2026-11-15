@@ -1,0 +1,4 @@
+#ifndef LETTERPET_RESOURCE_H
+#define LETTERPET_RESOURCE_H
+#define IDI_LETTERPET 101
+#endif

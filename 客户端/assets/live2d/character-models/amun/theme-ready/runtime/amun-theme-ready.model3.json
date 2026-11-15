@@ -1,0 +1,19 @@
+{
+  "Version": 3,
+  "FileReferences": {
+    "Moc": "amun-theme-ready.moc3",
+    "Textures": [
+      "amun-theme-ready.2048/texture_00.png"
+    ],
+    "DisplayInfo": "amun-theme-ready.cdi3.json",
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/blink.motion3.json",
+          "FadeInTime": 0,
+          "FadeOutTime": 0
+        }
+      ]
+    }
+  }
+}
